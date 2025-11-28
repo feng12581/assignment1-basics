@@ -4,6 +4,7 @@ import time
 from .adapters import run_train_bpe
 from .common import FIXTURES_PATH, gpt2_bytes_to_unicode
 
+import pdb
 
 def test_train_bpe_speed():
     """
@@ -36,7 +37,6 @@ def test_train_bpe():
     reference_vocab_path = FIXTURES_PATH / "train-bpe-reference-vocab.json"
     reference_merges_path = FIXTURES_PATH / "train-bpe-reference-merges.txt"
 
-    # Compare the learned merges to the expected output merges
     gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode().items()}
     with open(reference_merges_path, encoding="utf-8") as f:
         gpt2_reference_merges = [tuple(line.rstrip().split(" ")) for line in f]

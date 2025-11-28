@@ -1,6 +1,10 @@
 import os
 from typing import BinaryIO
-
+from multiprocessing import Pool
+import regex as re
+import time
+import json
+from collections import defaultdict
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -48,15 +52,41 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+def tasks(chunk: str):
+    dict = defaultdict(int)
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    for pre_token in re.finditer(PAT, chunk):
+        pre_token_utf8 = pre_token.group().encode("utf-8")
+        dict[tuple(bytes([byte]) for byte in pre_token_utf8)] += 1
+    return dict
 
-## Usage
-with open(..., "rb") as f:
-    num_processes = 4
-    boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
-    # The following is a serial implementation, but you can parallelize this
-    # by sending each start/end pair to a set of processes.
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+def pre_tokenization(input_file: str):
+    with open(input_file, "rb") as f:
+        num_processes = os.cpu_count()
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+
+        chunks = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunks.append(f.read(end - start).decode("utf-8", errors="ignore").replace("<|endoftext|>", ""))
+
+        with Pool(num_processes) as pool:
+            result = pool.map(tasks, chunks)
+        
+        merged_dict : dict[tuple[bytes, ...], int] = defaultdict(int)
+        #pretoken_pos : dict[int, tuple[bytes, ...]] = {}
+
+        for d in result:
+            for k, v in d.items():
+                # print(k)
+                merged_dict[k] += v
+        
+        table_pre_token_pos : dict[int, tuple[tuple[bytes, ...], int]] = {}
+        # table_merged_pre_token : dict[int, tuple[bytes, ...]] = {}
+        for index, (pre_token, n) in enumerate(merged_dict.items()):
+            table_pre_token_pos[index] = (pre_token, n)
+            # table_merged_pre_token[index] = pre_token
+  
+        return (merged_dict, table_pre_token_pos)
+
