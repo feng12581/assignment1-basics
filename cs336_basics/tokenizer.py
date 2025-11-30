@@ -61,12 +61,12 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
         vocabulary[index] = item.encode("utf-8")
     d = gpt2_bytes_to_unicode()
     for index, (key, value) in enumerate(d.items()):
-        vocabulary[index+1] = value.encode("utf-8")
+        vocabulary[index+1] = key.to_bytes()
     token_nums = len(vocabulary)
     assert token_nums == 256 + len(special_tokens)
     assert token_nums < vocab_size
 
-    pre_tokens, table_pre_token_pos = pre_tokenization(input_path)
+    pre_tokens, table_pre_token_pos = pre_tokenization(input_path, special_tokens)
     byte_pairs_frequency : dict[tuple[bytes, bytes], int] = defaultdict(int)
     byte_pairs_source : dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
     # byte_pairs_per_pretoken: dict[tuple[bytes, ...], tuple[tuple[bytes, bytes]]] = {}
@@ -90,9 +90,6 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
         new_token = max_frequency_bp[0] + max_frequency_bp[1]
         vocabulary[token_nums] = new_token
         token_nums += 1
-
-        if max_frequency_bp == (b'o', b'n'):
-            pdb.set_trace()
 
         for pos in byte_pairs_source[max_frequency_bp]:
             (pre_token, n) = table_pre_token_pos[pos]
@@ -137,9 +134,9 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
                             continue
                     else:
                         if bp_after == max_frequency_bp:
-                            byte_pairs_frequency[(bp[0], bp_after)] += n
+                            byte_pairs_frequency[(bp[0], new_token)] += n
                             byte_pairs_frequency[bp] -= n
-                            byte_pairs_source[(bp[0], bp_after)].add(pos)
+                            byte_pairs_source[(bp[0], new_token)].add(pos)
                             pre_token_after_merge.append((bp[0], new_token))
                             index += 1
                             continue
@@ -148,12 +145,14 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
                             index += 1
                             continue
                 else:
-                    break
+                    if bp != max_frequency_bp:
+                        pre_token_after_merge.append(bp)
+                    index += 1
+                    
                 
             table_bps_per_pretoken[pre_token] = tuple(pre_token_after_merge)
 
-        if max_frequency_bp == (b'o', b'n'):
-            pdb.set_trace()
+        # pdb.set_trace()
         byte_pairs_frequency.pop(max_frequency_bp)
 
     return (vocabulary, merges)

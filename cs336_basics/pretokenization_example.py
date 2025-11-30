@@ -61,15 +61,19 @@ def tasks(chunk: str):
     return dict
 
 
-def pre_tokenization(input_file: str):
+def pre_tokenization(input_file: str, special_tokens : list[str]):
+    special_token = special_tokens[0]
+    assert special_token == "<|endoftext|>"
     with open(input_file, "rb") as f:
-        num_processes = os.cpu_count()
+        num_processes = os.cpu_count() * 2
         boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
         chunks = []
         for start, end in zip(boundaries[:-1], boundaries[1:]):
             f.seek(start)
-            chunks.append(f.read(end - start).decode("utf-8", errors="ignore").replace("<|endoftext|>", ""))
+            text = re.split(re.escape(special_token), f.read(end - start).decode("utf-8", errors="ignore"))
+            for item in text:
+                chunks.append(item)
 
         with Pool(num_processes) as pool:
             result = pool.map(tasks, chunks)
