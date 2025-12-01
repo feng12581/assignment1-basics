@@ -4,6 +4,8 @@ from .pretokenization_example import pre_tokenization
 from collections import defaultdict
 import pdb
 from typing import Iterable, Iterator
+import regex as re
+from multiprocessing import Pool
 
 class Tokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None):
@@ -11,19 +13,159 @@ class Tokenizer:
         self.merges = merges
         self.special_tokens = special_tokens
 
+        if special_tokens is not None:
+            for token in special_tokens:
+                if token not in vocab.keys():
+                    length = len(vocab)
+                    vocab[length] = token.encode("utf-8")
+        
+        self.reverse_vocab = dict((v, k) for k, v in vocab.items())
         
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
         pass
 
     def encode(self, text: str) -> list[int]:
+        # pdb.set_trace()
         token_ids: list[int] = []
-        unicode_bytes = text.encode("utf-8")
+        if self.special_tokens is not None:
+            PAT = "(" + "|".join([re.escape(item) for item in self.special_tokens]) + ")"
+            segments = self.function(re.split(PAT, text))
+        else:
+            segments = text
+
+        num_process = 1
+
+        for segment in segments:
+            token_ids += self.generate_token_id(segment)
+        # with Pool(num_process) as pool:
+        #     result = pool.map(self.generate_token_id, segments)
+
+        # for tokens in result:
+        #     token_ids += tokens
         
         return token_ids
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        raise NotImplementedError
     
     def decode(self, ids: list[int]) -> str:
+        unibytes: bytes = bytes()
+        for id in ids:
+            unibytes += self.vocab[id]
+        return unibytes.decode("utf-8")
+
+    def function(self, text_split: list[str]) -> list[str]:
+        result: list[str] = []
+        special = str()
+        for i in range(len(text_split)):
+            s = text_split[i]
+            if s == "":
+                if i == len(text_split) - 1:
+                    assert len(special) > 0
+                    result.append(special)
+                    break
+                else:
+                    continue
+            if s in self.special_tokens:
+                special += s
+            else:
+                if len(special) > 0:
+                    result.append(special)
+                    result.append(s)
+                    special = ""
+                else:
+                    result.append(s)
+        return result
+
+    def generate_token_id(self, segment: str) -> list[int]:
+        flag = True
+        token_ids: list[int] = []
+        if self.special_tokens is not None:
+            for token in self.special_tokens:
+                if token in segment:
+                    flag = False
+                    break
+
+        if flag:
+            PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+            for pre_token in re.finditer(PAT, segment):
+                pre_token_utf8 = pre_token.group().encode("utf-8")
+                token_ids += self.apply_merge(pre_token_utf8)
+                
+        else:
+            pos: list[tuple[int, int]] = []
+            left = 0
+            for i in range(len(segment)):
+                right = i + 1
+                if segment[left:right] in self.special_tokens:
+                    pos.append((left, right))
+                    left = right
+                
+            merged_pos: list[tuple[int, int]] = pos
+            done = False
+            while not done:
+                length = len(merged_pos)
+                if length == 1:
+                    done = True
+                else:
+                    i = 0
+                    while i < length - 1:
+                        left = merged_pos[i][0]
+                        right = merged_pos[i+1][1]
+                        if segment[left:right] in self.special_tokens:
+                            head = merged_pos[0:i]
+                            middle = [(left, right)]
+                            tail = merged_pos[i+2:]
+                            merged_pos = head + middle + tail
+                            break
+                        else:
+                            if i == length - 2:
+                                done = True
+                            i += 1
+            
+            for (left, right) in merged_pos:
+                special_token = segment[left:right]
+                assert special_token in self.special_tokens
+                token_ids.append(self.reverse_vocab[special_token.encode("utf-8")])
+        return token_ids
+
+    
+    def apply_merge(self, segment_utf8: bytes) -> list[int]:
+        # pdb.set_trace()
+        merged_segment: list[bytes] = [segment_utf8[i:i+1] for i in range(len(segment_utf8))]
+        done = False
+        while not done:
+            length = len(merged_segment)
+            if length == 1:
+                done = True
+            else:
+                i = 0
+                # pdb.set_trace()
+                merge_point = -1
+                pos = len(self.merges)
+                while i < length - 1:
+                    bp = (merged_segment[i], merged_segment[i+1])
+                    if bp in self.merges:
+                        index = self.merges.index(bp)
+                        if index < pos:
+                            pos = index
+                            merge_point = i
+                    i += 1
+                if merge_point < 0:
+                    break
+                else:
+                    head = merged_segment[0:merge_point]
+                    middle = [merged_segment[merge_point] + merged_segment[merge_point+1]]
+                    tail = merged_segment[merge_point+2:]
+                    merged_segment = head + middle + tail
+
+
+        token_ids: list[int] = []
+
+        for token in merged_segment:
+            token_ids.append(self.reverse_vocab[token])
+        return token_ids
+
 
 
 def gpt2_bytes_to_unicode() -> dict[int, str]:
