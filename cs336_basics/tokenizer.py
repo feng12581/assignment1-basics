@@ -12,12 +12,13 @@ class Tokenizer:
         self.vocab = vocab
         self.merges = merges
         self.special_tokens = special_tokens
-
+        # pdb.set_trace()
         if special_tokens is not None:
             for token in special_tokens:
-                if token not in vocab.keys():
+                unibytes: bytes = token.encode("utf-8")
+                if unibytes not in vocab.values():
                     length = len(vocab)
-                    vocab[length] = token.encode("utf-8")
+                    vocab[length] = unibytes
         
         self.reverse_vocab = dict((v, k) for k, v in vocab.items())
         
@@ -31,7 +32,7 @@ class Tokenizer:
             PAT = "(" + "|".join([re.escape(item) for item in self.special_tokens]) + ")"
             segments = self.function(re.split(PAT, text))
         else:
-            segments = text
+            segments = [text]
 
         num_process = 1
 
@@ -52,7 +53,7 @@ class Tokenizer:
         unibytes: bytes = bytes()
         for id in ids:
             unibytes += self.vocab[id]
-        return unibytes.decode("utf-8")
+        return unibytes.decode("utf-8", errors='replace')
 
     def function(self, text_split: list[str]) -> list[str]:
         result: list[str] = []
