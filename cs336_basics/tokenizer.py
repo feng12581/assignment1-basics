@@ -47,17 +47,7 @@ class Tokenizer:
         return token_ids
     
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        count = 0
-        percent = 0
-        print("\n")
         for text in iterable:
-            if "<|endoftext|>" in text:
-                count += 1
-                if count >= 64:
-                    percent += 1
-                    print("Processing {}%\n".format(percent))
-                    count = 0
-
             token_ids = self.encode(text)
             for token_id in token_ids:
                 yield token_id
